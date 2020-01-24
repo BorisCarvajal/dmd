@@ -1542,92 +1542,116 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         ex = ex.expressionSemantic(sc);
         return ex;
     }
-    if (e.ident == Id.compiles || e.ident == Id.compilesPlus)
+
+    Expression compiles(bool withInfo)()
     {
-        /* Determine if all the objects - types, expressions, or symbols -
-         * compile without error
-         */
-
-/* TODO: enum or bitmask for customization
-
-        //   auto args = dim ? (*e.args)[] : null;
-        bool spec;
-        bool context;
-
-        if (e.ident == Id.compilesPlus)
+        static if (withInfo)
         {
             if (!dim)
-                return dimError(1);
+            {
+                auto exps = new Expressions();
+                exps.push(False());
+                auto result = new TupleExp(e.loc, exps);
+                return result.expressionSemantic(sc);
+            }
+            /*TODO: enum or bitmask for customization
+
+            //   auto args = dim ? (*e.args)[] : null;
+            bool spec;
+            bool context;
+
+            if (e.ident == Id.compilesPlus)
+            {
+            if (!dim)
+            return dimError(1);
             if (dim < 2)
-                return False();
+            return False();
             else
             {
-                if (true)
-                {
-                    spec = true;
-                    context = true;
-                }
-                args = (*e.args)[1 .. $];
-            }
-        }
-        else*/
-        if (!dim)
-            return False();
-
-        auto exps = new Expressions();
-        auto errorsBuf = Array!(const(char)*)();
-        auto contextsBuf = Array!(const(char)*)();
-        auto errsloc = Array!(Loc)();
-        import dmd.errors : diagnosticHandler;
-        auto diagnosticHandlerOld = diagnosticHandler;
-        auto showGaggedErrorsOld = global.params.showGaggedErrors;
-        auto printErrorContextOld = global.params.printErrorContext;
-        import core.stdc.stdarg : va_list;
-        import dmd.console : Color;
-        bool errorHandler(const ref Loc loc, Color headerColor, const(char)* header, const(char)* format, va_list ap, const(char)* p1, const(char)* p2) nothrow
-        {
-            OutBuffer errBuf;
-            OutBuffer ctxBuf;
-            errBuf.vprintf(format, ap);
-            import dmd.filecache : FileCache;
-            auto fllines = FileCache.fileCache.addOrGetFile(loc.filename.toDString());
-
-            if (loc.linnum - 1 < fllines.lines.length)
+            if (true)
             {
-                auto line = fllines.lines[loc.linnum - 1];
-                if (loc.charnum < line.length)
+            spec = true;
+            context = true;
+            }
+            args = (*e.args)[1 .. $];
+            }
+            }
+            else{}*/
+
+            import dmd.errors : diagnosticHandler;
+            import core.stdc.stdarg : va_list;
+            import dmd.console : Color;
+
+            auto diagnosticHandlerOld = diagnosticHandler;
+            auto showGaggedErrorsOld = global.params.showGaggedErrors;
+            auto printErrorContextOld = global.params.printErrorContext;
+            auto exps = new Expressions();
+            auto errorsBuf = Array!(const(char)*)();
+            auto contextsBuf = Array!(const(char)*)();
+            auto errsloc = Array!(Loc)();
+
+
+            bool errorHandler(const ref Loc loc, Color headerColor, const(char)* header, const(char)* format, va_list ap, const(char)* p1, const(char)* p2) nothrow
+            {
+                OutBuffer errBuf;
+                OutBuffer ctxBuf;
+                errBuf.writestring(header);
+                errBuf.writestring(p1);
+                errBuf.writestring(" ");
+                errBuf.writestring(p2);
+                errBuf.writestring(" ");
+                errBuf.vprintf(format, ap);
+                import dmd.filecache : FileCache;
+                import core.stdc.string;
+                // printf("filename: %s\n", loc.filename);
+                // TODO: mixin context output
+                if (!loc.filename.strstr(".d-mixin-") && !global.params.mixinOut)
                 {
-                    ctxBuf.printf("%.*s", cast(int)line.length, line.ptr);
+                    auto fllines = FileCache.fileCache.addOrGetFile(loc.filename.toDString());
+
+                    if (loc.linnum - 1 < fllines.lines.length)
+                    {
+                        auto line = fllines.lines[loc.linnum - 1];
+                        if (loc.charnum < line.length)
+                        {
+                            ctxBuf.printf("%.*s", cast(int)line.length, line.ptr);
+                        }
+                    }
                 }
+
+                errorsBuf.push(errBuf.extractData);
+                contextsBuf.push(ctxBuf.extractData);
+                errsloc.push(loc);
+
+                if (showGaggedErrorsOld)// || printErrorContextOld)
+                {
+                    global.params.showGaggedErrors = showGaggedErrorsOld;
+                    global.params.printErrorContext = printErrorContextOld;
+                    return false;
+                }
+                return true;
             }
 
-            errorsBuf.push(errBuf.extractData);
-            contextsBuf.push(ctxBuf.extractData);
-            errsloc.push(loc);
-
-            if (showGaggedErrorsOld)// || printErrorContextOld)
+            scope(exit)
             {
                 global.params.showGaggedErrors = showGaggedErrorsOld;
                 global.params.printErrorContext = printErrorContextOld;
-                return false;
+                diagnosticHandler = diagnosticHandlerOld;
             }
-            return true;
+            if (e.ident == Id.compilesPlus)
+            {
+                // I see again this bug, lambdas are empty with toChars
+                //printf("args len: %d, exps: %s\n", args.length, e.args.toChars);
+                global.params.showGaggedErrors = true;
+                global.params.printErrorContext = true;
+                diagnosticHandler = &errorHandler;
+                //exps.setDim(1);
+            }
         }
-
-        scope(exit)
+        else
         {
-            global.params.showGaggedErrors = showGaggedErrorsOld;
-            global.params.printErrorContext = printErrorContextOld;
-            diagnosticHandler = diagnosticHandlerOld;
-        }
-        if (e.ident == Id.compilesPlus)
-        {
-            // I see again this bug, lambdas are empty with toChars
-            //printf("args len: %d, exps: %s\n", args.length, e.args.toChars);
-            global.params.showGaggedErrors = true;
-            global.params.printErrorContext = true;
-            diagnosticHandler = &errorHandler;
-            //exps.setDim(1);
+            if (!dim)
+                return False();
         }
 
         foreach (o; *e.args)
@@ -1712,17 +1736,10 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
             // https://issues.dlang.org/show_bug.cgi?id=15428
             sc2.detach();
 
-            if (e.ident == Id.compiles)
+            //printf("num errors: %d, num warns: %d\n", global.gaggedErrors, global.gaggedWarnings);
+            if (global.endGagging(errors) || err)
             {
-                if (global.endGagging(errors) || err)
-                {
-                    return False();
-                }
-            }
-            else
-            {
-                //printf("num errors: %d, num warns: %d\n", global.gaggedErrors, global.gaggedWarnings);
-                if (global.endGagging(errors) || err)
+                static if (withInfo)
                 {
                     //(*exps)[0] = False();
                     exps.push(False());
@@ -1738,12 +1755,36 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
                     auto result = new TupleExp(e.loc, exps);
                     return result.expressionSemantic(sc);
                 }
-
+                else
+                    return False();
+            }
+            static if (withInfo)
+            {
                 global.params.showGaggedErrors = true;
                 global.params.printErrorContext = true;
             }
         }
-        return True();
+        static if (withInfo)
+        {
+            exps.push(True());
+            auto result = new TupleExp(e.loc, exps);
+            return result.expressionSemantic(sc);
+        }
+        else
+            return True();
+    }
+
+    if (e.ident == Id.compiles)
+    {
+        /* Determine if all the objects - types, expressions, or symbols -
+         * compile without error
+         */
+
+        return compiles!(false)();
+    }
+    if (e.ident == Id.compilesPlus)
+    {
+        return compiles!(true)();
     }
     if (e.ident == Id.isSame)
     {
