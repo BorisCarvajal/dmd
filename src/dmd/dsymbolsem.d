@@ -782,18 +782,24 @@ private extern(C++) final class DsymbolSemanticVisitor : Visitor
             }
             else if (auto ad = s.isAliasDeclaration)
             {
-                //auto tt = ad.type && ad.type.ty == Ttuple ? cast(TypeTuple)ad.type : null;
                 if (s_istypetuple && ce_istypetuple)
                 {
-                    auto tup = new TypeTuple(cast(Parameters*)objects);
-                    ad.type = tup.typeSemantic(dsym.loc, sc);
+                    auto tt = cast(TypeTuple)ad.type;
+                    tt.arguments = cast(Parameters*)objects;
                     ad.aliassym = null;
                 }
                 else
                 {
-                    auto tup = new TupleDeclaration(dsym.loc, dsym.ident, objects);
                     ad.type = null;
-                    ad.aliassym = tup;
+                    if (auto td = ad.aliassym.isTupleDeclaration)
+                    {
+                        td.objects = objects;
+                    }
+                    else
+                    {
+                        auto tup = new TupleDeclaration(dsym.loc, dsym.ident, objects);
+                        ad.aliassym = tup;
+                    }
                 }
             }
             else assert(0);
