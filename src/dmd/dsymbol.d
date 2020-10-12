@@ -772,8 +772,11 @@ extern (C++) class Dsymbol : ASTNode
             Dsymbol s2 = sds.symtabLookup(this,ident);
             if (!s2.overloadInsert(this))
             {
-                sds.multiplyDefined(Loc.initial, this, s2);
-                errors = true;
+                if (!isExpressionDsymbol() || !s2.isAliasDeclaration)
+                {
+                    sds.multiplyDefined(Loc.initial, this, s2);
+                    errors = true;
+                }
             }
         }
         if (sds.isAggregateDeclaration() || sds.isEnumDeclaration())
@@ -1043,7 +1046,7 @@ extern (C++) class Dsymbol : ASTNode
      */
     Dsymbol syntaxCopy(Dsymbol s)
     {
-        printf("%s %s\n", kind(), toChars());
+        printf("%s %s,  %p\n", kind(), toChars(), isExpressionDsymbol);
         assert(0);
     }
 
@@ -2125,6 +2128,18 @@ extern (C++) final class ExpressionDsymbol : Dsymbol
     override inout(ExpressionDsymbol) isExpressionDsymbol() inout
     {
         return this;
+    }
+
+    override Dsymbol syntaxCopy(Dsymbol s)
+    {
+        //printf("%s %s,  %p\n", kind(), toChars(), isExpressionDsymbol);
+        return this; // workaround
+        //assert(0);
+    }
+
+    override void accept(Visitor v)
+    {
+        v.visit(this);
     }
 }
 

@@ -659,6 +659,148 @@ private extern(C++) final class DsymbolSemanticVisitor : Visitor
         dsym.error("%p has no semantic routine", dsym);
     }
 
+    override void visit(ExpressionDsymbol dsym)
+    {
+        auto s = sc.search(dsym.loc, dsym.ident, null);
+        bool s_istypetuple;
+        s = s.toAlias;
+        if (!s)
+        {
+            error(dsym.loc, "unknown identifier `%s`", dsym.ident.toChars);
+            return;
+        }
+        if (auto ad = s.isAliasDeclaration)
+            s_istypetuple = ad.type && ad.type.ty == Ttuple;
+
+        auto ae = dsym.exp.isAssignExp;
+
+        // A = B ~ C;
+        if (ae && ae.e2.isCatExp)
+        {
+            auto ce = ae.e2.isCatExp;
+            //printf("ce.e1: %s, op: %s\n", ce.e1.toChars, Token.toChars(ce.e1.op));
+            //printf("ce.e2: %s, op: %s\n", ce.e2.toChars, Token.toChars(ce.e2.op));
+            auto e1 = ce.e1.syntaxCopy;
+            auto e2 = ce.e2.syntaxCopy;
+            e1 = e1.expressionSemantic(sc);
+            e2 = e2.expressionSemantic(sc);
+
+            bool ce_istypetuple;
+
+            Objects* mergeTupleElemens(Expression e1, Expression e2)
+            {
+                // if they are TypeTuples or TypeExps, merge to TypeTuple
+                if (e1.isTypeExp && e2.isTypeExp)
+                {
+                    ce_istypetuple = true;
+                    Parameters* tt1 = void;
+                    Parameters* tt2 = void;
+                    if ((cast(TypeExp)e1).type.isTypeTuple)
+                        tt1 = (cast(TypeExp)e1).type.isTypeTuple.arguments;
+                    else
+                    {
+                        tt1 = new Parameters(1);
+                        (*tt1)[0] = new Parameter(0, (cast(TypeExp)e1).type, null, null, null);
+                    }
+                    if ((cast(TypeExp)e2).type.isTypeTuple)
+                        tt2 = (cast(TypeExp)e2).type.isTypeTuple.arguments;
+                    else
+                    {
+                        tt2 = new Parameters(1);
+                        (*tt2)[0] = new Parameter(0, (cast(TypeExp)e2).type, null, null, null);
+                    }
+
+                    // if target is TypeTuple return Parameters
+                    if (s_istypetuple)
+                    {
+                        auto params = new Parameters;
+                        params.reserve(tt1.length + tt2.length);
+                        params.append(tt1);
+                        params.append(tt2);
+                        //printf("params: %s, len: %llu\n", params.toChars, params.length);
+                        return cast(Objects*)params;
+                    }
+                    else
+                    {
+                        auto types = new Types(tt1.length + tt2.length);
+                        size_t i;
+                        foreach (e; *tt1)
+                            (*types)[i++] = e.type;
+                        foreach (e; *tt2)
+                            (*types)[i++] = e.type;
+                        return cast(Objects*)types;
+                    }
+                }
+                Expressions* getTupleElements(Expression e)
+                {
+                    if (auto te = e.isTupleExp)
+                        return te.exps;
+                    if (e.isTypeExp && (cast(TypeExp)e).type.isTypeTuple)
+                    {
+                        auto tt = (cast(TypeExp)e).type.isTypeTuple;
+                        auto ttexps = new Expressions(tt.arguments.length);
+                        foreach (j, a; *tt.arguments)
+                            (*ttexps)[j] = new TypeExp(e.loc, a.type);
+                        return ttexps;
+
+                    }
+                    return null;
+                }
+                auto exps1 = getTupleElements(e1);
+                auto exps2 = getTupleElements(e2);
+                if (exps1 is null || exps2 is null)
+                {
+                    return null;
+                }
+
+                auto texps = new Expressions;
+                texps.reserve(exps1.length + exps2.length);
+                texps.append(exps1);
+                texps.append(exps2);
+                return cast(Objects*)texps;
+            }
+
+            auto objects = mergeTupleElemens(e1, e2);
+            //foreach (i, e; *objects)
+            //        printf("\tobjects[%llu]: %s\n", i, ce_istypetuple ? (cast(Parameter)e).type.toChars: e.toChars);
+
+            if (!objects)
+            {
+                /*printf("ce.e1: %s, op: %s\n", ce.e1.toChars, Token.toChars(ce.e1.op));
+                printf("ce.e2: %s, op: %s\n", ce.e2.toChars, Token.toChars(ce.e2.op));
+                printf("e1: %s, op: %s\n", e1.toChars, Token.toChars(e1.op));
+                printf("e2: %s, op: %s\n", e2.toChars, Token.toChars(e2.op));*/
+                error(dsym.loc, "can only concatenate tuples");
+                dsym.exp = ErrorExp.get();
+                return;
+            }
+
+            // update target tuple
+            if (auto td = s.isTupleDeclaration)
+            {
+                td.objects = objects;
+            }
+            else if (auto ad = s.isAliasDeclaration)
+            {
+                //auto tt = ad.type && ad.type.ty == Ttuple ? cast(TypeTuple)ad.type : null;
+                if (s_istypetuple && ce_istypetuple)
+                {
+                    auto tup = new TypeTuple(cast(Parameters*)objects);
+                    ad.type = tup.typeSemantic(dsym.loc, sc);
+                    ad.aliassym = null;
+                }
+                else
+                {
+                    auto tup = new TupleDeclaration(dsym.loc, dsym.ident, objects);
+                    ad.type = null;
+                    ad.aliassym = tup;
+                }
+            }
+            else assert(0);
+
+        }
+    }
+
     override void visit(ScopeDsymbol) { }
     override void visit(Declaration) { }
 
@@ -6555,6 +6697,13 @@ void aliasSemantic(AliasDeclaration ds, Scope* sc)
 
         if (ds.aliassym.isTemplateInstance())
             ds.aliassym.dsymbolSemantic(sc);
+
+        if (auto expsym = ds.aliassym.isExpressionDsymbol())
+            if (auto ce = expsym.exp.isCatExp)
+            {
+                // alias A = B ~ C;
+                // TODO: paste code from visit(ExpressionDsymbol)
+            }
         return;
     }
     ds.inuse = 1;

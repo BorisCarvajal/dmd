@@ -4621,6 +4621,25 @@ final class Parser(AST) : Lexer
                         }
                         continue;
 
+                    case TOK.tilde:
+                        nextToken();
+                        AST.Expression e;
+                        if (s.isDeclaration && (cast(AST.Declaration)s).type)
+                        {
+                            e = new AST.CatExp(loc, new AST.TypeExp(loc, (cast(AST.Declaration)s).type), new AST.TypeExp(loc, parseType()));
+                            //printf("concat e: %s\n", e.toChars);
+                        }
+                        //printf("s: %s\n", s.toChars);
+                        //printf("e: %s\n", e.toChars);
+                        s = new AST.AliasDeclaration(loc, ident, new AST.ExpressionDsymbol(e));
+                        //printf("a.length: %llu\n", a.length);
+                        (*a)[0] = s;
+                        if (token.value == TOK.tilde)
+                            goto case TOK.tilde;
+                        else if (token.value == TOK.semicolon)
+                            goto case TOK.semicolon;
+                        goto default;
+
                     default:
                         error("semicolon expected to close `%s` declaration", Token.toChars(tok));
                         break;
@@ -4765,6 +4784,26 @@ final class Parser(AST) : Lexer
             bool isThis = (t.ty == AST.Tident && (cast(AST.TypeIdentifier)t).ident == Id.This && token.value == TOK.assign);
             if (ident)
                 checkCstyleTypeSyntax(loc, t, alt, ident);
+            else if (t.ty == AST.Tident && token.value == TOK.assign)
+            {
+                nextToken();
+                auto ce = parseAddExp();
+/*                printf("loc: %s %d, id: %s, ce: %s, op: %s\n", loc.toChars, loc.charnum, (cast(AST.TypeIdentifier)t).ident.toChars, ce.toChars, Token.toChars(ce.op));
+                if (ce.op == TOK.concatenate)
+                    printf("ce.e1: %s, ce.e2: %s\n", (cast(AST.CatExp)ce).e1.toChars, (cast(AST.CatExp)ce).e2.toChars);*/
+                if (ce.op != TOK.concatenate)
+                    error("only concat supported now");
+                auto s = new AST.ExpressionDsymbol(new AST.AssignExp(token.loc, new AST.TypeExp(loc, t), ce));
+                s.ident = (cast(AST.TypeIdentifier)t).ident;
+                a.push(s);
+                if (token.value == TOK.semicolon)
+                {
+                    nextToken();
+                    addComment(s, comment);
+                    break;
+                }
+                error("no identifier for declarator `%s`", t.toChars());
+            }
             else if (!isThis && (t != AST.Type.terror))
                 error("no identifier for declarator `%s`", t.toChars());
 
