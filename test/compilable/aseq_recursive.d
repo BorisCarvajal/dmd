@@ -9,7 +9,7 @@ template Unqual(T)
     else
 	 alias Unqual = T;
 }
-
+/*
 private enum staticMapExpandFactor = 150;
 private string generateCases()
 {
@@ -23,14 +23,16 @@ private string generateCases()
     return ret ~ `)`;
 }
 private alias staticMapBasicCases = AliasSeq!(mixin(generateCases()));
-
+*/
 /**
 Evaluates to $(D AliasSeq!(F!(T[0]), F!(T[1]), ..., F!(T[$ - 1]))).
  */
 template staticMap(alias F, Args ...)
 {
-    static if (Args.length < staticMapExpandFactor)
-        mixin(staticMapBasicCases[Args.length]);
+    //static if (Args.length < staticMapExpandFactor)
+    //    mixin(staticMapBasicCases[Args.length]);
+    static if (Args.length == 1)
+          alias staticMap = AliasSeq!(F!(Args[0]));
     else
         alias staticMap = AliasSeq!(staticMap!(F, Args[0 .. $/2]), staticMap!(F, Args[$/2 .. $]));
 }
