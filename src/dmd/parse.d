@@ -7115,6 +7115,8 @@ final class Parser(AST) : Lexer
                 goto Lfalse;
             auto lp = t;
             t = peek(t);
+            if (t.ident == Id.toType)
+                break;
             if (t.value != TOK.identifier || t.ident != Id.getMember)
                 goto Lfalse;
             if (!skipParens(lp, &lp))
